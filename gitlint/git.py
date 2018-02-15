@@ -20,7 +20,6 @@ class GitNotInstalledError(GitContextError):
 
 def _git(*command_parts, cwd=None, ok_code=None, **kwargs):
     """ Convenience function for running git commands. Automatically deals with exceptions and unicode. """
-    # Special arguments passed to sh: http://amoffat.github.io/sh/special_arguments.html
     git = None
     try:
         git = local['git']
