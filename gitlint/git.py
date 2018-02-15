@@ -18,7 +18,7 @@ class GitNotInstalledError(GitContextError):
             u"See https://git-scm.com/book/en/v2/Getting-Started-Installing-Git on how to install git.")
 
 
-def _git(*command_parts, cwd=None, ok_code=None, **kwargs):
+def _git(*command_parts, cwd=None, **kwargs):
     """ Convenience function for running git commands. Automatically deals with exceptions and unicode. """
     git = None
     try:
@@ -30,8 +30,6 @@ def _git(*command_parts, cwd=None, ok_code=None, **kwargs):
         result = git(command_parts, **kwargs)
         return ustr(result)
     except ProcessExecutionError as e:  # Something went wrong while executing the git command
-        if ok_code and e.retcode in ok_code:
-            return e
         error_msg = e.stderr.strip()
         if cwd is not None and b"Not a git repository" in error_msg:
             error_msg = u"{0} is not a git repository.".format(cwd)
@@ -48,9 +46,9 @@ def git_version():
 
 def git_commentchar():
     """ Shortcut for retrieving comment char from git config """
-    commentchar = _git("config", "--get", "core.commentchar", ok_code=[1])
+    commentchar = _git("config", "--get", "core.commentchar", retcode=[0, 1])
     # git will return an exit code of 1 if it can't find a config value, in this case we fall-back to # as commentchar
-    if hasattr(commentchar, 'retcode') and commentchar.retcode == 1:  # pylint: disable=no-member
+    if not commentchar:
         commentchar = "#"
     return ustr(commentchar).replace(u"\n", u"")
 
