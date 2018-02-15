@@ -1,7 +1,7 @@
 import arrow
-import sh
+import plumbum.cmd as sh
 # import exceptions separately, this makes it a little easier to mock them out in the unit tests
-from sh import CommandNotFound, ErrorReturnCode
+from plumbum import CommandNotFound, ProcessExecutionError
 
 from gitlint.utils import ustr, sstr
 
@@ -33,7 +33,7 @@ def _git(*command_parts, **kwargs):
         return ustr(result)
     except CommandNotFound:
         raise GitNotInstalledError()
-    except ErrorReturnCode as e:  # Something went wrong while executing the git command
+    except ProcessExecutionError as e:  # Something went wrong while executing the git command
         error_msg = e.stderr.strip()
         if '_cwd' in git_kwargs and b"Not a git repository" in error_msg:
             error_msg = u"{0} is not a git repository.".format(git_kwargs['_cwd'])
