@@ -21,8 +21,6 @@ class GitNotInstalledError(GitContextError):
 def _git(*command_parts, cwd=None, ok_code=None, **kwargs):
     """ Convenience function for running git commands. Automatically deals with exceptions and unicode. """
     # Special arguments passed to sh: http://amoffat.github.io/sh/special_arguments.html
-    git_kwargs = {}
-    git_kwargs.update(kwargs)
     git = None
     try:
         git = local['git']
@@ -30,11 +28,11 @@ def _git(*command_parts, cwd=None, ok_code=None, **kwargs):
         raise GitNotInstalledError()
 
     try:
-        result = git(command_parts, **git_kwargs)
+        result = git(command_parts, **kwargs)
         return ustr(result)
     except ProcessExecutionError as e:  # Something went wrong while executing the git command
         if ok_code and e.retcode in ok_code:
-            return e.retcode
+            return e
         error_msg = e.stderr.strip()
         if cwd is not None and b"Not a git repository" in error_msg:
             error_msg = u"{0} is not a git repository.".format(cwd)
@@ -53,7 +51,7 @@ def git_commentchar():
     """ Shortcut for retrieving comment char from git config """
     commentchar = _git("config", "--get", "core.commentchar", ok_code=[1])
     # git will return an exit code of 1 if it can't find a config value, in this case we fall-back to # as commentchar
-    if hasattr(commentchar, 'exit_code') and commentchar.exit_code == 1:  # pylint: disable=no-member
+    if hasattr(commentchar, 'retcode') and commentchar.retcode == 1:  # pylint: disable=no-member
         commentchar = "#"
     return ustr(commentchar).replace(u"\n", u"")
 
