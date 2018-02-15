@@ -1,5 +1,5 @@
 import arrow
-import plumbum.cmd as sh
+from plumbum import local
 # import exceptions separately, this makes it a little easier to mock them out in the unit tests
 from plumbum import CommandNotFound, ProcessExecutionError
 
@@ -18,27 +18,29 @@ class GitNotInstalledError(GitContextError):
             u"See https://git-scm.com/book/en/v2/Getting-Started-Installing-Git on how to install git.")
 
 
-def _git(*command_parts, **kwargs):
+def _git(*command_parts, cwd=None, ok_code=None, **kwargs):
     """ Convenience function for running git commands. Automatically deals with exceptions and unicode. """
     # Special arguments passed to sh: http://amoffat.github.io/sh/special_arguments.html
-    git_kwargs = {'_tty_out': False}
+    git_kwargs = {}
     git_kwargs.update(kwargs)
+    git = None
     try:
-        result = sh.git(*command_parts, **git_kwargs)
-        # If we reach this point and the result has an exit_code that is larger than 0, this means that we didn't
-        # get an exception (which is the default sh behavior for non-zero exit codes) and so the user is expecting
-        # a non-zero exit code -> just return the entire result
-        if hasattr(result, 'exit_code') and result.exit_code > 0:
-            return result
-        return ustr(result)
+        git = local['git']
     except CommandNotFound:
         raise GitNotInstalledError()
+
+    try:
+        result = git(command_parts, **git_kwargs)
+        return ustr(result)
     except ProcessExecutionError as e:  # Something went wrong while executing the git command
+        if ok_code and e.retcode in ok_code:
+            return e.retcode
         error_msg = e.stderr.strip()
-        if '_cwd' in git_kwargs and b"Not a git repository" in error_msg:
-            error_msg = u"{0} is not a git repository.".format(git_kwargs['_cwd'])
+        if cwd is not None and b"Not a git repository" in error_msg:
+            error_msg = u"{0} is not a git repository.".format(cwd)
         else:
-            error_msg = u"An error occurred while executing '{0}': {1}".format(e.full_cmd, error_msg)
+            full_cmd = str(git.bound_command())
+            error_msg = u"An error occurred while executing '{0}': {1}".format(full_cmd, error_msg)
         raise GitContextError(error_msg)
 
 
@@ -49,7 +51,7 @@ def git_version():
 
 def git_commentchar():
     """ Shortcut for retrieving comment char from git config """
-    commentchar = _git("config", "--get", "core.commentchar", _ok_code=[1])
+    commentchar = _git("config", "--get", "core.commentchar", ok_code=[1])
     # git will return an exit code of 1 if it can't find a config value, in this case we fall-back to # as commentchar
     if hasattr(commentchar, 'exit_code') and commentchar.exit_code == 1:  # pylint: disable=no-member
         commentchar = "#"
@@ -179,14 +181,14 @@ class GitContext(object):
             # We tried many things here e.g.: defaulting to e.g. HEAD or HEAD^... (incl. dealing with
             # repos that only have a single commit - HEAD^... doesn't work there), but then we still get into
             # problems with e.g. merge commits. Easiest solution is just taking the SHA from `git log -1`.
-            sha_list = [_git("log", "-1", "--pretty=%H", _cwd=repository_path).replace(u"\n", u"")]
+            sha_list = [_git("log", "-1", "--pretty=%H", cwd=repository_path).replace(u"\n", u"")]
         else:
-            sha_list = _git("rev-list", refspec, _cwd=repository_path).split()
+            sha_list = _git("rev-list", refspec, cwd=repository_path).split()
 
         for sha in sha_list:
             # Get info from the local git repository: https://git-scm.com/docs/pretty-formats
             long_format = "--pretty=%aN%x00%aE%x00%ai%x00%P%n%B"
-            raw_commit = _git("log", sha, "-1", long_format, _cwd=repository_path).split("\n")
+            raw_commit = _git("log", sha, "-1", long_format, cwd=repository_path).split("\n")
 
             (name, email, date, parents), commit_msg = raw_commit[0].split('\x00'), "\n".join(raw_commit[1:])
 
@@ -194,7 +196,7 @@ class GitContext(object):
             commit_is_merge_commit = len(commit_parents) > 1
 
             # changed files in last commit
-            changed_files = _git("diff-tree", "--no-commit-id", "--name-only", "-r", sha, _cwd=repository_path).split()
+            changed_files = _git("diff-tree", "--no-commit-id", "--name-only", "-r", sha, cwd=repository_path).split()
 
             # "YYYY-MM-DD HH:mm:ss Z" -> ISO 8601-like format
             # Use arrow for datetime parsing, because apparently python is quirky around ISO-8601 dates:
